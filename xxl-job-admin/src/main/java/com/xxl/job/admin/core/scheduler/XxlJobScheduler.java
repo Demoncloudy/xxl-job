@@ -72,6 +72,10 @@ public class XxlJobScheduler  {
 
     private void initI18n(){
         for (ExecutorBlockStrategyEnum item:ExecutorBlockStrategyEnum.values()) {
+
+            // jobconf_block_SERIAL_EXECUTION=单机串行
+            // jobconf_block_DISCARD_LATER=丢弃后续调度
+            // jobconf_block_COVER_EARLY=覆盖之前调度
             item.setTitle(I18nUtil.getString("jobconf_block_".concat(item.name())));
         }
     }
