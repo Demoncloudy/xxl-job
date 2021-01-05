@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * @author xuxueli 2018-10-28 00:18:17
@@ -25,11 +26,14 @@ public class XxlJobScheduler  {
         initI18n();
 
         // admin registry monitor run
+        // 1. 调度中心注册守护线程，就是一直守护着执行器的注册，维持着和执行器之间的心跳
+        // 获取自动注册的执行器列表, 并对address list进行更新
         JobRegistryMonitorHelper.getInstance().start();
 
-        // admin fail-monitor run
+        // admin fail-monitor run 发送fail alarm的邮件
+        // 2. 任务失败处理的守护线程
         JobFailMonitorHelper.getInstance().start();
-
+        LockSupport.park();
         // admin lose-monitor run
         JobLosedMonitorHelper.getInstance().start();
 
