@@ -42,6 +42,8 @@ public class JobScheduleHelper {
             public void run() {
 
                 try {
+                    // 针对多个节点，防止调度器出现并发调度一个任务，调度器执行频率控制，最长睡眠5秒，最短4秒多点，即(5000-999)毫秒
+                    // 如A节点的调度器刚启动，并且获取一个任务，然后加锁，如果同时B节点也启动，也获取到这个任务，防止重复调用，随机睡眠
                     TimeUnit.MILLISECONDS.sleep(5000 - System.currentTimeMillis()%1000 );
                 } catch (InterruptedException e) {
                     if (!scheduleThreadToStop) {
@@ -76,12 +78,14 @@ public class JobScheduleHelper {
 
                         // 1、pre read
                         long nowTime = System.currentTimeMillis();
+                        // 获取正在自动执行的下一次执行时间在5s以内的任务
                         List<XxlJobInfo> scheduleList = XxlJobAdminConfig.getAdminConfig().getXxlJobInfoDao().scheduleJobQuery(nowTime + PRE_READ_MS, preReadCount);
                         if (scheduleList!=null && scheduleList.size()>0) {
                             // 2、push time-ring
                             for (XxlJobInfo jobInfo: scheduleList) {
 
                                 // time-ring jump
+                                // 线程执行时间为5S, 已经超过触发时间5s, 更新下一次的执行时间
                                 if (nowTime > jobInfo.getTriggerNextTime() + PRE_READ_MS) {
                                     // 2.1、trigger-expire > 5s：pass && make next-trigger-time
                                     logger.warn(">>>>>>>>>>> xxl-job, schedule misfire, jobId = " + jobInfo.getId());
@@ -91,7 +95,7 @@ public class JobScheduleHelper {
 
                                 } else if (nowTime > jobInfo.getTriggerNextTime()) {
                                     // 2.2、trigger-expire < 5s：direct-trigger && make next-trigger-time
-
+                                    // 超过调度时间5s以内
                                     // 1、trigger
                                     JobTriggerPoolHelper.trigger(jobInfo.getId(), TriggerTypeEnum.CRON, -1, null, null, null);
                                     logger.debug(">>>>>>>>>>> xxl-job, schedule push trigger : jobId = " + jobInfo.getId() );
@@ -100,20 +104,26 @@ public class JobScheduleHelper {
                                     refreshNextValidTime(jobInfo, new Date());
 
                                     // next-trigger-time in 5s, pre-read again
+                                    // 更新后, 下次执行时间在5s内
+                                    // 如果下次触发时间在当前时间之后的5秒内，并且将这个时间段的任务单独放在ringThread线程中处理，即触发时间在当前时间的后5秒内
+                                    // 特别处理当前时间之后的5秒内，是因为本循环最长5秒循环一次，防止有漏掉的定时任务,对应时间段D
+                                    // 注：scheduleThread和ringThread两个线程的执行评率不一样
                                     if (jobInfo.getTriggerStatus()==1 && nowTime + PRE_READ_MS > jobInfo.getTriggerNextTime()) {
 
                                         // 1、make ring second
+                                        // 此处计算出的ringSecond的值范围是0-59
                                         int ringSecond = (int)((jobInfo.getTriggerNextTime()/1000)%60);
 
                                         // 2、push time ring
+                                        // 将job放入ringThread线程
                                         pushTimeRing(ringSecond, jobInfo.getId());
 
                                         // 3、fresh next
                                         refreshNextValidTime(jobInfo, new Date(jobInfo.getTriggerNextTime()));
 
                                     }
-
                                 } else {
+                                    // 未来5s将会执行的任务
                                     // 2.3、trigger-pre-read：time-ring trigger && make next-trigger-time
 
                                     // 1、make ring second
@@ -135,6 +145,7 @@ public class JobScheduleHelper {
                             }
 
                         } else {
+                            // 未来5S内没有将要执行的任务
                             preReadSuc = false;
                         }
 
@@ -190,6 +201,8 @@ public class JobScheduleHelper {
                     if (cost < 1000) {  // scan-overtime, not wait
                         try {
                             // pre-read period: success > scan each second; fail > skip this period;
+                            // 未来5S没有要执行的任务, 睡眠 4 ~ 5s
+                            // preReadSuc 有5秒内正常运行的任务，则睡眠一秒以内，没有则睡眠5-(0至999)秒
                             TimeUnit.MILLISECONDS.sleep((preReadSuc?1000:PRE_READ_MS) - System.currentTimeMillis()%1000);
                         } catch (InterruptedException e) {
                             if (!scheduleThreadToStop) {
