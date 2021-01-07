@@ -98,8 +98,10 @@ public class JobTriggerPoolHelper {
                 } finally {
 
                     // check timeout-count-map
+                    // 每分钟清理一次jobTimeoutCountMap，这个简单实用达到一分钟内计数的目的
                     long minTim_now = System.currentTimeMillis()/60000;
                     if (minTim != minTim_now) {
+                        // 赋予当前的分钟
                         minTim = minTim_now;
                         jobTimeoutCountMap.clear();
                     }
